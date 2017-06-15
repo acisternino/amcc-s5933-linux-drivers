@@ -1,0 +1,338 @@
+
+ README -- Main documentation file for the AutoBahn Linux device
+           drivers and tools.
+
+ (c) 1997 Andrea Cisternino  (acister@pcape1.pi.infn.it)
+          Toni Giorgino      (toni@pcape2.pi.infn.it)
+
+ README,v 1.1.1.1 1997/10/21 08:27:07 acister Exp
+
+
+LEGALESE
+========
+
+The AutoBahn (AB) driver is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License as published
+by the Free Software Foundation; either version 2, or (at your option) any
+later version.
+
+The AB driver is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+675 Mass Ave, Cambridge, MA 02139, USA.
+
+AutoBahn is a trademark of PEP Modular Computers.
+
+!WARNING!
+=========
+
+This driver is ALPHA software.
+
+THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
+EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF
+USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+
+
+DESCRIPTION
+===========
+
+The "ab" driver is a Linux character device driver for the AutoBahn serial
+communication PCI board (PCI2AB).
+
+The PCI2AB board uses two AutoBahn chips (MC100SX1451FI100) from Motorola
+to implement a Token-Ring like high-speed network (800 Mbit/s) where each
+computer is connected to a couple of adjacent units with a serial link.
+Each board has one input and one output connection so that a number of
+computer can be connected in a ring with the data flowing in one
+direction.
+
+The board is being designed and built at the Zeuthen Laboratory in Germany
+and uses the AMCC S5933 PCI MatchMaker chip for interfacing to the PCI
+bus.
+
+The main design goals we are trying to achieve are high-speed and
+low-latency. To fully exploit the hardware capabilities we wrote a
+zero-copy driver that completely exposes to the user application the S5933
+internal registers.
+
+In order to allow for the huge transfers that our applications will need,
+our driver requires the bigphysarea patch for the Linux kernel. This patch
+modifies the kernel in such a way that a big chunk of physical memory can
+be reserved at boot time and then used by drivers. The patch can be found
+in the bigphysarea directory in the source distribution.
+
+The driver is currently under test on Linux/i386 2.0.29 with a similar
+board already in use at the Zeuthen Laboratory. This board (PCI2SHL) is
+similar to the PCI2AB but uses the SharcLink protocol for serial
+communication with a link speed of 40MByte/s.
+
+The code should be 2.1 compatible and architecture independent. Every kind
+of comment and report about the code is welcome.
+
+
+PREREQUISITES
+=============
+
+The driver needs a kernel with the bigphysarea patch applied (Debian kernel
+has it by default) and compiled in. This kernel MUST be booted with the
+
+    bigphysarea=NNN
+
+option where NNN is the number of PAGES that will be reserved at start
+time.
+
+The default buffer size required by the driver is 512KB making 128 the
+minimum number of pages needed on a x86 machine.
+
+The S5933 must be programmed at power-on time with the operation registers
+memory mapped and with pass-thru area 1 set as 32 bit wide, at least 16
+bytes long. Other optional pass-thru areas are ignored.
+
+Please refer to the S5933 databook for the correct nvram values.
+
+
+PROGRAMMING
+===========
+
+The ab driver supports the following system calls:
+
+    - open()
+    - close()
+    - mmap()
+    - ioctl()
+    - select()   (not working yet)
+
+The PCI2AB board uses the following AMCC S5933 facilities:
+
+    - FIFOs
+    - Mailbox 1
+    - Pass-thru area 1  (4DWORD, 32bit)
+
+Three different memory areas can be memory mapped from the device in user
+space. The first two are the S5933 PCI operation registers and the
+pass-thru area 1. These areas physically resides on the PCI bus and every
+read/write operation on them is translated by the PCI controller to a PCI
+bus cycle. The third area is the large physical RAM buffer reserved at boot
+time via the bigphysarea option. The amount of memory used by the driver
+can be specified at insertion time with the size parameter.
+
+The driver masks the differences between the three areas and simulate a
+device with the following memory map:
+
+              Offset    Area
+--------------------    -----------------------------
+    AB_OPREGS_OFFSET    PCI operation registers
+       AB_PT1_OFFSET    Pass-thru area 1
+       AB_BUF_OFFSET    DMA buffer
+
+The *_OFFSET constant are defined in ab.h and must be used as the offset
+parameter in the mmap() function call. The ab_mmap() function in the driver
+uses the offset parameter as a selector for the right area.
+
+PCI Operation registers
+-----------------------
+
+This is a sample mmap() call to obtain application-level access to the
+S5933 operation registers:
+
+struct s5933_opreg *or;
+
+or = (struct s5933_opreg *) mmap (NULL, sizeof (struct s5933_opreg),
+                                  (PROT_READ | PROT_WRITE), MAP_SHARED,
+                                  ab_fd, (off_t) AB_OPREGS_OFFSET);
+
+The struct s5933_opreg is defined in ab.h and allows simpler access to the
+registers and their inner fields.
+
+WARNING: Always cast the mmap() call to a pointer to a data type not
+larger than 64 bytes (16 DWORD). This because the address range
+assigned by the PCI bios to the operation registers is exactly 64
+bytes wide while the memory management system granularity is PAGE_SIZE
+(4096 bytes on the x86). Thus an operation like
+
+   ((char *) or)[128] = 0xFF;
+
+is legal for the kernel (even though you passed sizeof (struct s5933_opreg)
+to mmap()) but is wrong for the PCI bus.
+
+If you use the s5933_opreg structure, a simple access to the MCSR register
+can be performed like in the following example:
+
+    volatile u_int txready;
+
+    txready = or->p2azero;
+
+after this instruction `txready' is true if and only if there is no DMA
+transmission in progress.
+
+You can also have control over all of the `mcsr' bits at a time:
+
+    volatile __u32 mcsr_reg;      /* data type defined in asm/types.h */
+
+    mcsr_reg = or->mcsr;
+
+After this (mcsr & MCSR32_P2A_TC_ZERO) evaluates as or->p2azero.
+MCSR32_P2A_TC_ZERO and all of the mcsr bits and fields are defined in
+"s5933.h" both as structure member - to be accessed as in the former
+example - and 32 bit masks (latter example). You can read the mcsr in
+either way you prefer at any time.
+
+
+Pass-thru area 1
+----------------
+
+In a similar manner pass-thru area 1 can be mapped with a call like this:
+
+struct sharc_regs *sr;
+
+sr = (struct sharc_regs *) mmap (NULL, sizeof (struct sharc_regs),
+                                 (PROT_READ | PROT_WRITE), MAP_SHARED,
+                                 ab_fd, (off_t) AB_PT1_OFFSET);
+
+The sharc_regs structure is defined in "shl.h" and can be used to
+access SharcLink registers implemented in the board's PLD. A similar
+structure will be provided when the AutoBahn board will be ready for
+testing.
+
+
+DMA buffer
+----------
+
+The DMA buffer is allocated by the driver with the bigphysarea_alloc()
+function from the common memory area reserved at boot time. The default
+size is 512KB but it can be changed at module load time using the size
+parameter. The sequence of operations needed to use this buffer in an
+application is:
+
+ioctl (ab_fd, ABIOGETSIZE, &bsize);
+
+dmabuf = (__u32 *) mmap (NULL, bsize, (PROT_READ | PROT_WRITE),
+                         MAP_SHARED, ab_fd, (off_t) AB_BUF_OFFSET);
+
+Please note that in this case the buffer size is not fixed and should be
+queried in advance with the ABIOGETSIZE ioctl.
+
+In order to use the buffer for DMA transfers, its physical address must be
+obtained. The ABIOGETPADDR ioctl returns the buffer starting address.
+Every valid address calculated from this base one (i.e. offsets into the
+buffer) can be written in the MWAR and MRAR registers and used for
+application level DMA setup.
+
+Here is an example of a DMA write (PCI to Add-on) transfer setup. The
+meaning of the S5933 registers is reversed here; a write transfer for the
+application is a "read from PCI" transfer for the chip.
+
+    /* data setup */
+
+    or->mrar = (__u32) phys_addr;   /* buffer physical address */
+    or->mrtc = count;               /* buffer size in bytes */
+
+    if (alt_prio_needed)
+        or->wtc_w_prio = 1;         /* alternate R/W priority */
+
+    /* start transfer */
+
+    or->rtc = (MCSR_RTC_ENABLE | MCSR_RTC_FIFO_MNG | MCSR_RTC_RD_PRIO);
+
+    /* transfer running now */
+
+Please read s5933.h for the structure fields definitions.
+
+
+RESOURCES
+=========
+
+The driver makes use of a single file in the /dev directory:
+
+    /dev/ab        Major number: 120
+                   Minor number:   0
+
+The major number is fixed and chosen from one of the experimental reserved
+range as described in Documentation/devices.txt from the kernel source
+tree. If the number conflicts with your setup the AB_MAJOR symbol (defined
+in ab.h) can be changed to suit your needs.
+
+The name used by the driver in the /proc/devices list is "ab".
+
+One interrupt is reserved by the driver. Its number is chosen by the PCI
+BIOS and can be read from /proc/interrupts. As the chip is totally
+controlled from user space, IRQ settings are left to the application. The
+board could be completely operated using polling and busy waiting.
+
+The current version has no way to let the application know that an
+interrupt has occurred.
+
+
+USAGE
+=====
+
+To compile the driver, simply cd to the autobahn directory and type
+'make'. This will produce the driver module "ab.o", the test programs in
+"test" and the nvram driver in "nvram". BY DEFAULT THE MODULE IS COMPILED
+WITH DEBUGGING TURNED ON. If you want a faster and leaner code edit the
+Makefile and disable this option (follow the comments inside the file).
+
+All of the following commands must be performed as root.
+
+Make the device node with:
+
+# mknod -m 666 /dev/ab c 120 0
+
+To actually use the driver use the insmod command:
+
+# insmod ab.o
+
+To remove the module type:
+
+# rmmod amcc.o
+
+
+TEST PROGRAMS
+=============
+
+A number of test programs have been written in order to exercise the
+different features of the driver. Some test programs use an ISA board
+(part of the AMCC Developer's kit) externally connected to the PCI board
+as a mean of simulating some form of add-on hardware. The first letter of
+the program's name is used to distinguish the different bus used for the
+test.
+
+As the driver is currently under test with the PCI2SHL board, many of the
+programs are specially crafted for this particular equipment.
+
+The driver can be tested with a program that "works" on the PCI bus while
+the add-on hardware is emulated with a different program using the ISA
+board.
+
+Use the -h option with the programs to get more detailed usage
+information.
+
+These programs are neither meant to be stable nor general testing tools.
+PLEASE READ THE CODE BEFORE USING.
+
+
+INFORMATION
+===========
+
+More detailed information about this driver will be available from the Web
+pages:
+
+    http://pcape1.pi.infn.it/~acister/dev
+    http://pcape2.pi.infn.it/~toni
+
+The official home of the AMCC S5933 chip is:
+
+    http://www.amcc.com/product-guide/pci/pci.html
+
+The official Motorola AutoBahn page is:
+
+    http://www.mot-sps.com/logic/autobahn
+

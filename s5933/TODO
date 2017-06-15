@@ -1,0 +1,29 @@
+
+TODO -- Whish list for the general-purpose AMCC S5933 PCI Matchmaker driver.
+
+(c) 1997 Andrea Cisternino  (acister@pcape1.pi.infn.it)
+
+$Id: TODO,v 2.1 1997/07/30 13:18:47 acister Exp $
+
+
+    Please note that this driver is ALPHA software and that it has been
+written to gain a better knowledge of the S5933 chip. The code will be used
+as a starting point for a different project. The features listed here will
+probably never be implemented in this version of the driver.
+
+    For more info on the project see http://pcape1.pi.infn.it/~acister/dev
+
+
+TODO LIST
+=========
+
+    Improve handling of pass-thru regions using device nodes with different
+    minor numbers.
+
+    (?) Improve handling of resources by different processes (hack the
+    open() function).
+
+    Test the driver with memory mapped operation registers.
+
+    Perform some benchmarks on memory-mapped vs. io-mapped operation
+    registers.

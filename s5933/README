@@ -1,0 +1,190 @@
+
+ README -- Main documentation file for the general-purpose
+           AMCC S5933 PCI Matchmaker driver.
+
+ (c) 1997 Andrea Cisternino  (acister@pcape1.pi.infn.it)
+
+ $Id: README,v 2.3 1997/09/23 15:07:12 acister Exp $
+
+
+LEGALESE
+========
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation; either version 2, or (at your option) any later
+version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+675 Mass Ave, Cambridge, MA 02139, USA.
+
+
+!WARNING!
+=========
+
+This driver is ALPHA software.
+
+THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
+EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF
+USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+
+
+DESCRIPTION
+===========
+
+This driver is a general-purpose Linux character device driver for the
+AMCC S5933 PCI Matchmaker chip. It has been tested on the AMCC Developer's
+kit only and should be considered a proof of concept. It will not probably
+be further developed in this general form because its main design goal was
+to gain a better knowledge of the chip. Il will be the basis for more
+specialized drivers needed to work on some "real world" hardware
+
+The driver has been tested on Linux/i386 2.0.29 but the code should be 2.1
+compatible and architecture independent. Comments and reports about
+architecture or kernel version related problems are welcome.
+
+The S5933 chip is a generic PCI controller. It can act as busmaster or as
+a simple target. It is made by three major functional elements:
+
+* FIFOs
+      The two FIFO are used to transfer actual data between the two busses.
+      On both sides of the chip the FIFO are seen as a register located at
+      a fixed address. Read/write operations automatically select the right
+      FIFO. The FIFO may be either a PCI target or a PCI initiator. DMA can
+      be used for tranfers involving the FIFO.
+
+* Mailbox registers
+      The Mailbox are two set of four 4-bytes long registers. One set is
+      used to transfer data from the add-on side to the PCI side. The
+      other is used in the opposite direction. These registers can be used
+      as a sort of "dual-ported" memory locations and can be used to
+      tranfer single commands, status information etc. The S5933 can be
+      set-up in such a way to issue an interrupt if one of the mailbox is
+      filled or emptied.
+
+* Pass-thru regions
+      The pass-thru regions are used to directly access resources on the
+      add-on from the PCI bus. The pass-thru data transfer method is very
+      useful for direct add-on memory access, or accessing registers within
+      peripherals on an add-on board. Pass-thru operation requires an
+      external nv memory boot device to define and configure the S5933
+      pass-thru regions.
+
+The hardware characteristics are used by the driver in the following
+ways:
+
+* FIFOs
+      The FIFOs are used by the standard read() and write() system calls.
+      Asynchronous I/O is allowed. Transfers are performed using DMA to
+      maximize performances.
+
+* Mailbox registers
+      Standard ioctl() calls are used to access the Incoming and Outgoing
+      mailboxes.
+
+* Pass-thru regions
+      Comprehensive support for pass-thru regions is not ready yet. At the
+      moment only one region can be mmapped in user space. The region
+      number must be preset at compile time. Please see the mmap()
+      function code in the source.
+
+Resources
+---------
+
+The driver makes use of a single file in the /dev directory:
+
+    /dev/amcc
+
+The major number is dynamically allocated at initialization time and can be
+retrieved from user space by reading /proc/devices. The name used by the
+ddriver in this list is "amcc".
+
+One interrupt is used by the driver. Its number is chosen by the PCI BIOS
+and can be read from /proc/interrupts.
+
+Test programs
+-------------
+
+A number of test programs have been written in order to exercise the
+different features of the driver. These test programs use an ISA board
+(part of the AMCC Developer's kit) externally connected to the PCI board
+as a mean of simulating some form of add-on hardware.
+
+A different set of programs has been written for every S5933 hardware
+feature. As the main problem of the S5933 Developers' Kit is the lack of
+add-on hardware, the ISA bus board is used for this purpose.  The Linux
+driver is usually tested with a program that "works" on the PCI bus while
+the add-on hardware is emulated with a different program using the ISA
+board. The first letter of the program's name is used to distinguish the
+different purposes.
+
+The following programs have been written so far:
+
+* pfifo
+      Tests the FIFO from the PCI side. Can perform different operations
+      according to the command line options.
+
+* ififo
+      Companion program for pfifo. It uses the developer's kit ISA board
+      to talk to the Add-on side of the FIFO.
+
+* pmb
+      Tests the mailbox registers on the PCI side.
+
+* imb
+      Companion program for pmb. It uses the developer's kit ISA board
+      to talk to the Add-on side of the Mailboxes.
+
+* ppt
+      This program is a quick hack used for testing the mmapping of
+      pass-thru areas. I say again: it is a quick hack; do not consider
+      it a usable tool. Please read the source before using.
+
+Use the -h option with the FIFO and Mailbox testing programs to get more
+detailed usage information.
+
+
+INSTALLATION
+============
+
+To compile, simply cd to the s5933 directory and type 'make'. This will
+produce the driver module 'amcc.o'. By default the module is compiled with
+debugging turned on. If you want a leaner code edit the Makefile and
+disable this option (follow the comments inside the file).
+
+All of the following commands must be performed as root.
+
+To actually use the driver use the insmod command:
+
+# insmod amcc.o
+
+Get the major number from /proc/devices:
+
+# cat /proc/devices
+
+Make the device node with (this must be run as root):
+
+# mknod /dev/amcc c <major num> 0
+
+To remove the module type:
+
+# rmmod amcc.o
+
+
+INFORMATION
+===========
+
+More detailed information about this driver can be found on the Web page:
+
+http://pcape1.pi.infn.it/~acister/dev/driver.html
+
